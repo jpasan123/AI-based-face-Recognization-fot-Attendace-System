@@ -6,7 +6,6 @@ import numpy as np
 from datetime import datetime
 from PIL import Image
 import io
-import base64
 
 class AttendanceSystem:
     def __init__(self):
@@ -20,6 +19,7 @@ class AttendanceSystem:
         try:
             conn = sqlite3.connect('attendance.db', check_same_thread=False)
             c = conn.cursor()
+            # Create staff table
             c.execute('''CREATE TABLE IF NOT EXISTS staff (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             name TEXT NOT NULL,
@@ -28,6 +28,7 @@ class AttendanceSystem:
                             image_path TEXT,
                             face_encoding BLOB
                         )''')
+            # Create attendance table
             c.execute('''CREATE TABLE IF NOT EXISTS attendance (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             staff_id INTEGER,
@@ -48,6 +49,7 @@ class AttendanceSystem:
                 image_bytes = image_file.read()
                 face_image = face_recognition.load_image_file(io.BytesIO(image_bytes))
                 face_encodings = face_recognition.face_encodings(face_image)
+
                 if len(face_encodings) > 0:
                     face_encoding = face_encodings[0]
                     cursor.execute('''INSERT INTO staff (name, age, position, image_path, face_encoding)
@@ -55,11 +57,14 @@ class AttendanceSystem:
                                    (name, age, position, image_file.name, face_encoding.tobytes()))
                     self.conn.commit()
                     st.success(f"Staff {name} added successfully")
+                    # Reload known faces after adding a new staff
                     self.known_face_encodings, self.known_face_names = self.load_known_faces()
                 else:
-                    st.error(f"No face detected in the image for {name}. Please check the image.")
+                    st.error(f"No face detected in the image for {name}. Please upload a clear image.")
             except Exception as e:
                 st.error(f"Error adding staff {name}: {e}")
+        else:
+            st.error("Database connection not established.")
 
     def load_known_faces(self):
         if self.conn is not None:
@@ -69,10 +74,14 @@ class AttendanceSystem:
 
             known_face_encodings = []
             known_face_names = []
+
             for name, face_encoding_bytes in staff_data:
-                face_encoding = np.frombuffer(face_encoding_bytes, dtype=np.float64)
-                known_face_encodings.append(face_encoding)
-                known_face_names.append(name)
+                if face_encoding_bytes:
+                    face_encoding = np.frombuffer(face_encoding_bytes, dtype=np.float64)
+                    known_face_encodings.append(face_encoding)
+                    known_face_names.append(name)
+                else:
+                    st.warning(f"Warning: No face encoding found for {name}")
 
             return known_face_encodings, known_face_names
         else:
@@ -93,7 +102,7 @@ class AttendanceSystem:
                     self.conn.commit()
                     st.success(f"Attendance recorded for {name}")
                 else:
-                    st.error(f"Staff member {name} not found in database")
+                    st.error(f"Staff member {name} not found in the database.")
             except sqlite3.Error as e:
                 st.error(f"Error recording attendance: {e}")
 
@@ -106,6 +115,7 @@ class AttendanceSystem:
                 if staff_info:
                     return staff_info
                 else:
+                    st.warning(f"No staff member found with name {name}")
                     return None
             except sqlite3.Error as e:
                 st.error(f"Error fetching staff info: {e}")
@@ -143,7 +153,7 @@ def main():
             if name and age and position and image_file:
                 attendance_system.add_staff(name, int(age), position, image_file)
             else:
-                st.warning("Please fill all fields")
+                st.warning("Please fill all fields and upload an image.")
 
     elif choice == "Take Attendance":
         st.subheader("Attendance System")
@@ -166,6 +176,7 @@ def main():
                     if matches[best_match_index]:
                         name = attendance_system.known_face_names[best_match_index]
 
+                # Draw a box around the face and label it
                 top, right, bottom, left = face_location
                 cv2.rectangle(cv2_img, (left, top), (right, bottom), (0, 0, 255), 2)
                 cv2.rectangle(cv2_img, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
